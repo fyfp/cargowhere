@@ -5,21 +5,25 @@ import { Carpark } from '../types/carpark';
 interface StatsBannerProps {
   carparks: Carpark[];
   isLiveApi: boolean;
+  source?: 'lta' | 'data.gov.sg' | 'calibrated';
   syncTime: string;
   isRefreshing: boolean;
   countdownSeconds: number;
   onRefresh: () => void;
   matchedCount: number;
+  ltaConfigured?: boolean;
 }
 
 export const StatsBanner: React.FC<StatsBannerProps> = ({
   carparks,
   isLiveApi,
+  source = 'data.gov.sg',
   syncTime,
   isRefreshing,
   countdownSeconds,
   onRefresh,
   matchedCount,
+  ltaConfigured = false,
 }) => {
   const totalCarLots = carparks.reduce((sum, cp) => sum + cp.lots.car.total, 0);
   const availableCarLots = carparks.reduce((sum, cp) => sum + cp.lots.car.available, 0);
@@ -78,7 +82,11 @@ export const StatsBanner: React.FC<StatsBannerProps> = ({
                   <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
                 )}
                 <span>
-                  {isLiveApi ? `Data.gov.sg API Live (${matchedCount} synced)` : 'Calibrated Live Feed'}
+                  {source === 'lta'
+                    ? `LTA DataMall v2 Live (${matchedCount} synced)`
+                    : isLiveApi
+                    ? `Data.gov.sg API Live (${matchedCount} synced)`
+                    : 'Calibrated Live Feed'}
                 </span>
               </div>
               <div className="text-[11px] text-slate-400 font-mono-numbers mt-0.5">

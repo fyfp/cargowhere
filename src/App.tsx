@@ -21,6 +21,8 @@ const LOCAL_STORAGE_SAVED_KEY = 'sg_parksense_saved_carparks_v1';
 export default function App() {
   const [carparks, setCarparks] = useState<Carpark[]>(INITIAL_SINGAPORE_CARPARKS);
   const [isLiveApi, setIsLiveApi] = useState<boolean>(true);
+  const [feedSource, setFeedSource] = useState<'lta' | 'data.gov.sg' | 'calibrated'>('data.gov.sg');
+  const [ltaConfigured, setLtaConfigured] = useState<boolean>(false);
   const [syncTime, setSyncTime] = useState<string>('Just now');
   const [matchedCount, setMatchedCount] = useState<number>(0);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -90,6 +92,8 @@ export default function App() {
       }
       setCarparks(updated);
       setIsLiveApi(result.isLiveApi);
+      setFeedSource(result.source);
+      setLtaConfigured(result.ltaConfigured);
       setSyncTime(result.syncTime);
       setMatchedCount(result.matchedCount);
       setCountdownSeconds(60);
@@ -305,6 +309,8 @@ export default function App() {
       <StatsBanner
         carparks={carparks}
         isLiveApi={isLiveApi}
+        source={feedSource}
+        ltaConfigured={ltaConfigured}
         syncTime={syncTime}
         isRefreshing={isRefreshing}
         countdownSeconds={countdownSeconds}

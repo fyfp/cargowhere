@@ -103,16 +103,19 @@ export function calculateEstimatedFee(
 }
 
 /**
- * Fetches real-time carpark availability directly from Singapore Data.gov.sg API
- * Falls back seamlessly to calibrated time-of-day model if offline or rate limited.
+ * Fetches real-time carpark availability from the LTA DataMall serverless endpoint (/api/carparkavailability).
+ * If LTA_ACCOUNT_KEY is not configured or serverless is unreachable, gracefully falls back
+ * to the public Singapore Data.gov.sg API and calibrated live model.
  */
 export async function fetchLiveCarparkData(
   currentCarparks: Carpark[]
 ): Promise<{
   carparks: Carpark[];
   isLiveApi: boolean;
+  source: 'lta' | 'data.gov.sg' | 'calibrated';
   syncTime: string;
   matchedCount: number;
+  ltaConfigured: boolean;
 }> {
   const currentHour = new Date().getHours();
   const timeString = new Date().toLocaleTimeString('en-SG', {
@@ -121,9 +124,74 @@ export async function fetchLiveCarparkData(
     second: '2-digit',
   });
 
+  // 1. First attempt: LTA DataMall serverless endpoint (/api/carparkavailability)
+  try {
+    const ltaController = new AbortController();
+    const ltaTimeout = setTimeout(() => ltaController.abort(), 4000);
+
+    const ltaRes = await fetch('/api/carparkavailability', {
+      signal: ltaController.signal,
+      headers: { Accept: 'application/json' },
+    });
+    clearTimeout(ltaTimeout);
+
+    if (ltaRes.ok) {
+      const ltaPayload = await ltaRes.json();
+      if (ltaPayload.configured && ltaPayload.success && Array.isArray(ltaPayload.data) && ltaPayload.data.length > 0) {
+        // Map LTA DataMall v2 records (CarParkID, Development, AvailableLots, LotType, Agency)
+        const ltaMap = new Map<string, any>();
+        for (const item of ltaPayload.data) {
+          if (item.CarParkID) {
+            ltaMap.set(String(item.CarParkID).toUpperCase(), item);
+          }
+          if (item.Development) {
+            ltaMap.set(String(item.Development).toLowerCase(), item);
+          }
+        }
+
+        let ltaMatched = 0;
+        const updatedFromLta = currentCarparks.map((cp) => {
+          const match =
+            ltaMap.get(cp.id.toUpperCase()) ||
+            ltaMap.get(cp.name.toLowerCase());
+
+          if (match) {
+            ltaMatched++;
+            const avail = typeof match.AvailableLots === 'number' ? match.AvailableLots : parseInt(match.AvailableLots, 10) || cp.lots.car.available;
+            return {
+              ...cp,
+              isHdbApiMatched: true,
+              lastUpdated: timeString,
+              lots: {
+                ...cp.lots,
+                car: {
+                  ...cp.lots.car,
+                  available: Math.min(avail, cp.lots.car.total || avail),
+                },
+              },
+            };
+          }
+          return cp;
+        });
+
+        return {
+          carparks: updatedFromLta,
+          isLiveApi: true,
+          source: 'lta',
+          syncTime: timeString,
+          matchedCount: ltaMatched,
+          ltaConfigured: true,
+        };
+      }
+    }
+  } catch {
+    // Continue to Data.gov.sg
+  }
+
+  // 2. Second attempt: Open Data.gov.sg public API
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     const response = await fetch('https://api.data.gov.sg/v1/transport/carpark-availability', {
       signal: controller.signal,
@@ -206,8 +274,10 @@ export async function fetchLiveCarparkData(
     return {
       carparks: updatedCarparks,
       isLiveApi: true,
+      source: 'data.gov.sg',
       syncTime: timeString,
       matchedCount: matched,
+      ltaConfigured: false,
     };
   } catch {
     // Graceful fallback to calibrated live simulation
@@ -233,8 +303,10 @@ export async function fetchLiveCarparkData(
     return {
       carparks: updatedCarparks,
       isLiveApi: false,
+      source: 'calibrated',
       syncTime: timeString,
       matchedCount: 0,
+      ltaConfigured: false,
     };
   }
 }
